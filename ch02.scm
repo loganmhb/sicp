@@ -556,6 +556,7 @@
   (accumulate + 0 (map * v w)))
 
 ;; returns vector t where t(i) = sum to j of m(i)(j)*v(j)
+
 (define (matrix-*-vector m v)
   (map (lambda (mi)
          (accumulate + 0 (accumulate-n * 1 (list mi v))))
@@ -566,8 +567,267 @@
 
 ;; returns matrix p where p(i)(j) = sum to k of m(i)(k)*n(k)(j)
 
+;; p[i][j] = sum to k of m[i][k]*n[k][j]
+
 (define (matrix-*-matrix m n)
   (let ((cols (transpose n)))
-    (map  m)))
+    (map (lambda (row) (matrix-*-vector cols row)) m)))
 
+;;; Exercise 2.38
+
+;; Provided:
+
+(define (fold-left op initial sequence)
+  (define (iter result rest)
+    (if (null? rest)
+        result
+        (iter (op result (car rest))
+              (cdr rest))))
+  (iter initial sequence))
+
+;; Commutative ops will produce the same result whether folded right or left.
+
+;;; Exercise 2.39
+
+(define nil '())
+
+(define (reverse sequence)
+  (fold-right (lambda (x y) (append y (list x))) nil sequence))
+
+(define (reverse sequence)
+  (fold-left (lambda (x y) (cons y x)) nil sequence))
+
+;;; Exercise 2.40 - Unique pairs
+
+;; Given an integer n, generate the sequence of unique pairs i, j such that 1<j<i<n.
+
+(define (enumerate-interval x y)
+  (if (> x y)
+      nil
+      (cons x (enumerate-interval (+ x 1) y))))
+
+(define (flatmap op seq)
+  (accumulate append nil (map op seq)))
+
+(define (unique-pairs n)
+  (flatmap (lambda (i)
+             (map (lambda (j) (list i j))
+                  (enumerate-interval 1 (- i 1))))
+           (enumerate-interval 1 n)))
+
+;;; Exercise 2.41
+
+;; Write a procedure to find all ordered triples of distinct positive integers i,
+;; j, and k less than or equal to a given integer n that sum to a given integer s.
+
+(define (ordered-triples n)
+  (flatmap (lambda (i)
+             (flatmap (lambda (j)
+                        (map (lambda (k)
+                               (list i j k))
+                             (enumerate-interval 1 (- j 1))))
+                      (enumerate-interval 1 (- i 1))))
+           (enumerate-interval 1 n)))
+
+(define (find-triplet-addends n s)
+  (filter (lambda (triple) (eq? (fold-left + 0 triple) s))
+          (ordered-triples n)))
+
+;;; Exercise 2.42 - n queens
+
+;; Queen safety:
+;; -No queen in the same column is guaranteed
+;; -No queen must have the same row as the queen in col k
+;; -No queen must have the same (row + col) as the queen in col k
+;; -No queen must satisfy (qr - qkr) = (qc - qkc)
+
+(define (make-position r c)
+  (cons r c))
+
+(define (row queen)
+  (car queen))
+
+(define (col queen)
+  (cdr queen))
+
+(define (adjoin-position new-row k rest-of-queens)
+  (cons (make-position new-row k) rest-of-queens))
+
+(define empty-board '())
+
+(define (safe? k positions)
+  (let ((queenk (car positions))    ; newest position is always in car
+        (others (cdr positions)))
+    (define (attacks? pos1 pos2)
+      (or (eq? (row pos1) (row pos2))
+          (eq? (+ (row pos1) (col pos1))
+               (+ (row pos2) (col pos2)))
+          (eq? (- (col pos1) (col pos2))
+               (- (row pos1) (row pos2)))))
+    (eq? (filter (lambda (pos) (attacks? pos queenk))
+                 others)
+         '())))
+
+(define (queens board-size)
+  (define (queen-cols k)
+    (if (= k 0)
+        (list empty-board)
+        (filter
+         (lambda (positions) (safe? k positions))
+         (flatmap
+          (lambda (rest-of-queens)
+            (map (lambda (new-row)
+                   (adjoin-position new-row k rest-of-queens))
+                 (enumerate-interval 1 board-size)))
+          (queen-cols (- k 1))))))
+  (queen-cols board-size))
+
+
+;;;;; A PICTURE LANGUAGE
+
+(define (flipped-pairs painter)
+  (let ((painter2 (beside painter (flip-vert painter))))
+    (below painter2 painter2)))
+
+(define (right-split painter n)
+  (if (= n 0)
+      painter
+      (let ((smaller (right-split painter (- n 1))))
+        (beside painter (below smaller smaller)))))
+
+(define (corner-split painter n)
+  (if (= n 0)
+      painter
+      (let ((up (up-split painter (- n 1)))
+            (right (right-split painter (- n 1))))
+        (let ((top-left (beside up up))
+              (bottom-right (below right right))
+              (corner (corner-split painter (- n 1))))
+          (beside (below painter top-left)
+                  (below bottom-right corner))))))
+
+(define (square-limit painter n)
+  (let ((quarter (corner-split painter n)))
+    (let ((half (beside (flip-horiz quarter) quarter)))
+      (below (flip-vert half) half))))
+
+;;; Exercise 2.44
+
+;; Define the procedure up-split used by corner-split. It is similar to
+;; right-split, except that it switches the roles of below and beside.
+
+(define (up-split painter n)
+  (if (= n 0)
+      painter
+      (let ((smaller (up-split painter (- n 1))))
+        (below painter (beside smaller smaller)))))
+
+;;; Exercise 2.45
+
+;; Define a general splitting operation in order to reimplement
+;; right-split and up-split as follows:
+
+;;   (define right-split (split beside below))
+;;   (define up-split (split below beside))
+
+(define (split large-op small-op)
+  (letrec ((func (lambda (painter n)
+                   (if (= n 0)
+                       (painter)
+                       (let ((smaller (func painter (- n 1))))
+                         (large-op painter (small-op smaller smaller)))))))
+    func))
+
+;;;; Frames
+
+(define (frame-coord-map frame)
+  (lambda (v)
+    (add-vect
+     (origin-frame frame)
+     (add-vect (scale-vect (xcor-vect v)
+                           (edge1-frame frame))
+               (scale-vect (ycor-vect v)
+                           (edge2-frame frame))))))
+
+;;; Exercise 2.46
+
+;; Implement a data abstraction for vectors running from the origin to
+;; a point, comprising a constructor make-vect and selectors xcor-vect
+;; and ycor-vect. In terms of this abstraction, implement add-vect,
+;; sub-vect, and scale-vect.
+
+(define (make-vect xcor ycor)
+  (cons xcor ycor))
+
+(define (xcor-vect vect)
+  (car vect))
+
+(define (ycor-vect vect)
+  (cdr vect))
+
+;-----------
+
+(define (add-vect vect1 vect2)
+  (make-vect (+ (xcor-vect vect1)
+                (xcor-vect vect2))
+             (+ (ycor-vect vect1)
+                (ycor-vect vec2))))
+
+(define (sub-vect vect1 vec2)
+  (make-vect (- (xcor-vect vect1)
+                (xcor-vect vect2))
+             (- (ycor-vect vect1)
+                (ycor-vect vec2))))
+
+(define (scale-vect vect scalar)
+  (make-vect (* (xcor-vect scalar))
+             (* (ycor-vect scalar))))
+
+;;; Exercise 2.47
+
+;; Two constructors for frames. For each, supply the appropriate
+;; selectors.
+
+(define (make-frame origin edge1 edge2)
+  (list origin edge1 edge2))
+
+;; selectors
+
+(define (frame-origin frame)
+  (car frame))
+(define (frame-edge1 frame)
+  (cadr frame))
+(define (frame-edge2 frame)
+  (caddr frame))
+
+;---
+
+(define (make-frame origin edge1 edge2)
+  (cons origin (cons edge1 edge2)))
+
+;; selectors
+
+(define (frame-origin frame)
+  (car frame))
+(define (frame-edge1 frame)
+  (cadr frame))
+(define (frame-edge2 frame)
+  (cddr frame))
+
+;;; Exercise 2.48
+
+;; A directed line segment in a plane can be represented by two
+;; vectors, each running from the origin to one endpoint. Define
+;; constructor and selectors.
+
+(define (make-segment vector1 vector2)
+  (cons vector1 vector2))
+
+(define (start-segment segment)
+  (car segment))
+
+(define (end-segment segment)
+  (cdr segment))
+
+;;; Skipping several easy exercises on quotation
 
